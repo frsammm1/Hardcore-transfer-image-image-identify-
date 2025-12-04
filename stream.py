@@ -5,10 +5,10 @@ import config
 from utils import human_readable_size, time_formatter
 
 async def progress_callback(current, total, start_time, file_name, status_msg):
-    """Update progress with reduced frequency"""
+    """Update progress with SAFE frequency"""
     now = time.time()
     
-    # Update every UPDATE_INTERVAL seconds
+    # 🔒 Increased update interval to reduce API calls
     if now - config.last_update_time < config.UPDATE_INTERVAL: 
         return 
     config.last_update_time = now
@@ -23,7 +23,7 @@ async def progress_callback(current, total, start_time, file_name, status_msg):
     
     try:
         await status_msg.edit(
-            f"🚀 **EXTREME MODE (32MB × 5)**\n"
+            f"🔒 **SAFE MODE (512KB × 2)**\n"
             f"📂 `{file_name[:40]}...`\n"
             f"**{bar} {round(percentage, 1)}%**\n"
             f"⚡ `{human_readable_size(speed)}/s` | ⏳ `{time_formatter(eta)}`\n"
@@ -32,9 +32,10 @@ async def progress_callback(current, total, start_time, file_name, status_msg):
     except Exception:
         pass
 
-class ExtremeBufferedStream:
+class SafeBufferedStream:
     """
-    Extreme performance streaming with 32MB chunks and 5-queue buffer (160MB)
+    🔒 SAFE performance streaming with 512KB chunks and 2-queue buffer (~1MB)
+    Optimized for ban prevention while maintaining decent speed
     """
     def __init__(self, client, location, file_size, file_name, start_time, status_msg):
         self.client = client
@@ -45,27 +46,35 @@ class ExtremeBufferedStream:
         self.status_msg = status_msg
         self.current_bytes = 0
         
-        # EXTREME SETTINGS
-        self.chunk_size = config.CHUNK_SIZE
-        self.queue = asyncio.Queue(maxsize=config.QUEUE_SIZE)  # 160MB buffer
+        # 🔒 SAFE SETTINGS (reduced from extreme)
+        self.chunk_size = config.CHUNK_SIZE  # Now 512KB
+        self.queue = asyncio.Queue(maxsize=config.QUEUE_SIZE)  # Now 2 (~1MB buffer)
         
         self.downloader_task = asyncio.create_task(self._worker())
         self.buffer = b""
         self.closed = False
         
-        config.logger.info(f"🚀 EXTREME Stream: 32MB chunks, 160MB buffer for {file_name}")
+        config.logger.info(f"🔒 SAFE Stream: 512KB chunks, 1MB buffer for {file_name}")
 
     async def _worker(self):
-        """Background worker to download chunks"""
+        """Background worker to download chunks with SAFE settings"""
         try:
             async for chunk in self.client.iter_download(
                 self.location, 
-                chunk_size=self.chunk_size,
-                request_size=self.chunk_size
+                chunk_size=self.chunk_size,  # 512KB chunks
+                request_size=self.chunk_size  # Match request size
             ):
                 if self.closed:
                     break
+                
                 await self.queue.put(chunk)
+                
+                # 🔒 Small delay every 10 chunks to prevent rate limiting
+                self.current_bytes += len(chunk)
+                chunks_downloaded = self.current_bytes // self.chunk_size
+                if chunks_downloaded % 10 == 0:
+                    await asyncio.sleep(0.1)  # 100ms pause
+            
             await self.queue.put(None) 
         except Exception as e:
             config.logger.error(f"⚠️ Stream Worker Error: {e}")
@@ -90,9 +99,8 @@ class ExtremeBufferedStream:
                 self.closed = True
                 break
             self.buffer += chunk
-            self.current_bytes += len(chunk)
             
-            # Fire-and-forget progress update
+            # Fire-and-forget progress update (less frequent)
             asyncio.create_task(progress_callback(
                 self.current_bytes, 
                 self.file_size, 
