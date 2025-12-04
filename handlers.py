@@ -6,17 +6,18 @@ import config
 from keyboards import (
     get_settings_keyboard, get_confirm_keyboard,
     get_skip_keyboard, get_clone_info_keyboard,
-    get_pdf_options_keyboard, get_thumbnail_options_keyboard
+    get_pdf_remove_options_keyboard, get_pdf_add_options_keyboard,
+    get_pdf_thumbnail_options_keyboard, get_thumbnail_options_keyboard
 )
 from transfer import transfer_process
 
 def register_handlers(user_client, bot_client):
-    """Register all bot handlers"""
+    """Register all bot handlers with NEW PDF features"""
     
     @bot_client.on(events.NewMessage(pattern='/start'))
     async def start_handler(event):
         await event.respond(
-            "🚀 **EXTREME MODE BOT v2.0**\n"
+            "🚀 **EXTREME MODE BOT v3.0**\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
             f"⚡ Chunks: **{config.CHUNK_SIZE // (1024*1024)}MB** × {config.QUEUE_SIZE} Queue\n"
             f"💾 Buffer: **{(config.CHUNK_SIZE * config.QUEUE_SIZE) // (1024*1024)}MB**\n"
@@ -25,12 +26,12 @@ def register_handlers(user_client, bot_client):
             "**Features:**\n"
             "✅ All file types support\n"
             "✅ Video → MP4 conversion\n"
-            "✅ Smart format detection\n"
             "✅ Filename manipulation\n"
             "✅ Caption manipulation\n"
-            "✅ Extra caption support\n"
             "✅ PDF page removal (smart)\n"
-            "✅ Smart thumbnail generation\n\n"
+            "🆕 PDF page insertion\n"
+            "🆕 PDF thumbnail control\n"
+            "✅ Smart video thumbnails\n\n"
             "**Commands:**\n"
             "`/clone` - Start cloning\n"
             "`/stats` - Bot statistics\n"
@@ -42,38 +43,27 @@ def register_handlers(user_client, bot_client):
     @bot_client.on(events.NewMessage(pattern='/help'))
     async def help_handler(event):
         await event.respond(
-            "📚 **EXTREME MODE - User Guide**\n"
+            "📚 **EXTREME MODE - User Guide v3.0**\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
             "**Step 1:** Use `/clone` command\n"
-            "Format: `/clone SOURCE_ID DEST_ID`\n"
-            "Example: `/clone -1001234567 -1009876543`\n\n"
+            "Format: `/clone SOURCE_ID DEST_ID`\n\n"
             "**Step 2:** Configure Settings\n"
-            "• Filename Find & Replace\n"
-            "• Caption Find & Replace\n"
-            "• Add Extra Caption\n"
-            "• PDF Page Removal\n"
-            "• Thumbnail Generation\n"
-            "• Or skip all (direct transfer)\n\n"
-            "**Step 3:** Provide Message Range\n"
-            "Send two Telegram message links:\n"
+            "• Filename/Caption manipulation\n"
+            "• PDF page removal\n"
+            "🆕 PDF page insertion\n"
+            "🆕 PDF thumbnail control\n"
+            "• Video thumbnail generation\n\n"
+            "**Step 3:** Send Message Range\n"
             "`https://t.me/c/xxx/10 - https://t.me/c/xxx/20`\n\n"
-            "**Supported Files:**\n"
-            "• Videos (auto MP4 conversion)\n"
-            "• Images (auto JPG conversion)\n"
-            "• Documents (PDF, TXT, HTML, etc.)\n"
-            "• PDFs (with smart page removal)\n"
-            "• Text messages\n"
-            "• All Telegram media types\n\n"
-            "**Advanced Features:**\n"
-            "• Remove PDF pages by numbers or keywords\n"
-            "• Generate smart thumbnails from video\n"
-            "• Skip first N seconds of video for thumbnail\n"
-            "• Batch manipulation of all files\n\n"
+            "**🆕 NEW PDF Features:**\n"
+            "📄 Remove pages (numbers/keywords/image)\n"
+            "➕ Add custom image as page\n"
+            "🖼️ Remove/replace PDF thumbnail\n"
+            "📍 Insert at start/end/custom position\n\n"
             "**Tips:**\n"
-            "• Use channel/group IDs (start with -100)\n"
+            "• Use channel IDs (start with -100)\n"
             "• Ensure bot is admin in destination\n"
-            "• Monitor RAM during large transfers\n"
-            "• Use `/stop` to halt mid-transfer"
+            "• Monitor RAM during large transfers"
         )
     
     @bot_client.on(events.NewMessage(pattern='/clone'))
@@ -91,7 +81,6 @@ def register_handlers(user_client, bot_client):
             source_id = int(args[1])
             dest_id = int(args[2])
             
-            # Create session
             session_id = str(uuid.uuid4())
             config.active_sessions[session_id] = {
                 'source': source_id,
@@ -108,7 +97,7 @@ def register_handlers(user_client, bot_client):
                 f"📤 Destination: `{dest_id}`\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n\n"
                 f"**Configure your transfer settings:**\n"
-                f"(All settings are optional)\n\n"
+                f"🆕 NEW: PDF page insertion & thumbnail control!\n\n"
                 f"Session ID: `{session_id[:8]}...`",
                 buttons=get_settings_keyboard(session_id)
             )
@@ -119,8 +108,7 @@ def register_handlers(user_client, bot_client):
                 "**Usage:**\n"
                 "`/clone SOURCE_ID DEST_ID`\n\n"
                 "**Example:**\n"
-                "`/clone -1001234567890 -1009876543210`\n\n"
-                "💡 Get IDs using @userinfobot"
+                "`/clone -1001234567890 -1009876543210`"
             )
     
     @bot_client.on(events.CallbackQuery(pattern=b'clone_help'))
@@ -130,15 +118,10 @@ def register_handlers(user_client, bot_client):
             "📖 **How to Use Clone Command**\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
             "1️⃣ Get Source & Destination IDs\n"
-            "   Use @userinfobot or @getidsbot\n\n"
-            "2️⃣ Run command:\n"
-            "   `/clone -1001234 -1009876`\n\n"
-            "3️⃣ Configure settings (optional)\n"
-            "   • Filename modifications\n"
-            "   • Caption modifications\n"
-            "   • Extra captions\n\n"
-            "4️⃣ Send message range\n"
-            "   Two Telegram links separated by '-'\n\n"
+            "2️⃣ Run: `/clone -1001234 -1009876`\n"
+            "3️⃣ Configure settings\n"
+            "   🆕 NEW PDF features available!\n"
+            "4️⃣ Send message range\n\n"
             "✅ Transfer starts automatically!"
         )
     
@@ -146,19 +129,23 @@ def register_handlers(user_client, bot_client):
     async def stats_callback(event):
         await event.answer()
         await event.respond(
-            f"📊 **EXTREME MODE Statistics**\n"
+            f"📊 **EXTREME MODE v3.0 Stats**\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"⚡ Chunk Size: **{config.CHUNK_SIZE // (1024*1024)}MB**\n"
-            f"💾 Queue Size: **{config.QUEUE_SIZE} chunks**\n"
-            f"📦 Buffer: **{(config.CHUNK_SIZE * config.QUEUE_SIZE) // (1024*1024)}MB**\n"
-            f"📤 Upload Parts: **{config.UPLOAD_PART_SIZE // 1024}MB**\n"
-            f"🔄 Max Retries: **{config.MAX_RETRIES}**\n"
-            f"⏱️ Update Interval: **{config.UPDATE_INTERVAL}s**\n"
+            f"⚡ Chunk: **{config.CHUNK_SIZE // (1024*1024)}MB**\n"
+            f"💾 Buffer: **{(config.CHUNK_SIZE * config.QUEUE_SIZE) // (1024*1024)}MB**\n"
+            f"📤 Upload: **{config.UPLOAD_PART_SIZE // 1024}MB parts**\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"🚀 Status: **{'🟢 Running' if config.is_running else '🔴 Idle'}**\n"
-            f"📊 Active Sessions: **{len(config.active_sessions)}**"
+            f"📊 Sessions: **{len(config.active_sessions)}**\n\n"
+            f"🆕 **NEW Features:**\n"
+            f"• PDF page insertion\n"
+            f"• PDF thumbnail control"
         )
     
+    # Continue in Part 2...
+    # ... continued from Part 1
+    
+    # Existing handlers (fname, fcap, xcap) remain same...
     @bot_client.on(events.CallbackQuery(pattern=r'set_fname_(.+)'))
     async def set_filename_callback(event):
         session_id = event.data.decode().split('_')[2]
@@ -169,9 +156,7 @@ def register_handlers(user_client, bot_client):
         await event.edit(
             "📝 **Filename Modification**\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
-            "Enter text to **FIND** in filenames:\n"
-            "(Send text or use Skip button)\n\n"
-            "Example: `S01E` or `720p`",
+            "Enter text to **FIND** in filenames:",
             buttons=get_skip_keyboard(session_id)
         )
     
@@ -185,9 +170,7 @@ def register_handlers(user_client, bot_client):
         await event.edit(
             "💬 **Caption Modification**\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
-            "Enter text to **FIND** in captions:\n"
-            "(Send text or use Skip button)\n\n"
-            "Example: `@OldChannel` or `Old Text`",
+            "Enter text to **FIND** in captions:",
             buttons=get_skip_keyboard(session_id)
         )
     
@@ -201,15 +184,14 @@ def register_handlers(user_client, bot_client):
         await event.edit(
             "➕ **Extra Caption**\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
-            "Enter text to **ADD** at end of captions:\n"
-            "(Send text or use Skip button)\n\n"
-            "Example: `@MyChannel` or `Join us!`",
+            "Enter text to **ADD** at end:",
             buttons=get_skip_keyboard(session_id)
         )
     
-    @bot_client.on(events.CallbackQuery(pattern=r'set_pdf_(.+)'))
-    async def set_pdf_callback(event):
-        session_id = event.data.decode().split('_')[2]
+    # PDF REMOVE handlers (existing)
+    @bot_client.on(events.CallbackQuery(pattern=r'set_pdf_remove_(.+)'))
+    async def set_pdf_remove_callback(event):
+        session_id = event.data.decode().split('_')[3]
         if session_id not in config.active_sessions:
             return await event.answer("❌ Session expired!", alert=True)
         
@@ -217,77 +199,152 @@ def register_handlers(user_client, bot_client):
             "📄 **PDF Page Removal**\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
             "Choose removal method:",
-            buttons=get_pdf_options_keyboard(session_id)
+            buttons=get_pdf_remove_options_keyboard(session_id)
         )
     
-    @bot_client.on(events.CallbackQuery(pattern=r'pdf_pages_(.+)'))
-    async def pdf_pages_callback(event):
-        session_id = event.data.decode().split('_')[2]
+    # 🆕 PDF ADD handlers
+    @bot_client.on(events.CallbackQuery(pattern=r'set_pdf_add_(.+)'))
+    async def set_pdf_add_callback(event):
+        session_id = event.data.decode().split('_')[3]
         if session_id not in config.active_sessions:
             return await event.answer("❌ Session expired!", alert=True)
         
-        config.active_sessions[session_id]['step'] = 'pdf_pages'
         await event.edit(
-            "🔢 **Remove Pages by Numbers**\n"
+            "➕ **Add Custom Page to PDF**\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
-            "Enter page numbers to remove:\n\n"
-            "**Formats:**\n"
-            "• Single pages: `1,3,5`\n"
-            "• Range: `1-5`\n"
-            "• Mixed: `1,3-5,8,10-12`\n\n"
-            "**Example:**\n"
-            "`2,5,10-15,20`\n\n"
-            "This will remove pages 2, 5, 10-15, and 20",
-            buttons=get_skip_keyboard(session_id)
+            "🎨 Insert your own image as a PDF page!\n\n"
+            "**Choose insertion position:**",
+            buttons=get_pdf_add_options_keyboard(session_id)
         )
     
-    @bot_client.on(events.CallbackQuery(pattern=r'pdf_keywords_(.+)'))
-    async def pdf_keywords_callback(event):
-        session_id = event.data.decode().split('_')[2]
+    @bot_client.on(events.CallbackQuery(pattern=r'pdf_add_start_(.+)'))
+    async def pdf_add_start_callback(event):
+        session_id = event.data.decode().split('_')[3]
         if session_id not in config.active_sessions:
             return await event.answer("❌ Session expired!", alert=True)
         
-        config.active_sessions[session_id]['step'] = 'pdf_keywords'
+        config.active_sessions[session_id]['step'] = 'pdf_add_image'
+        config.active_sessions[session_id]['settings']['pdf_add_position'] = 'start'
+        
         await event.edit(
-            "🔍 **Remove Pages by Keywords**\n"
+            "➕ **Add Page at START**\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
-            "Enter keywords to search (comma-separated):\n\n"
-            "**Example:**\n"
-            "`logo, advertisement, promo`\n\n"
-            "Bot will remove all pages containing these keywords.\n\n"
-            "⚠️ This searches for text in PDF pages.",
+            "📤 **Send your image now:**\n\n"
+            "**Supported formats:**\n"
+            "• JPG, PNG, WEBP\n"
+            "• Any image format\n\n"
+            "**Tips:**\n"
+            "• Use high quality images\n"
+            "• Image will auto-fit to page\n"
+            "• Portrait recommended for docs",
             buttons=get_skip_keyboard(session_id)
         )
     
-    @bot_client.on(events.CallbackQuery(pattern=r'pdf_image_(.+)'))
-    async def pdf_image_callback(event):
-        session_id = event.data.decode().split('_')[2]
+    @bot_client.on(events.CallbackQuery(pattern=r'pdf_add_end_(.+)'))
+    async def pdf_add_end_callback(event):
+        session_id = event.data.decode().split('_')[3]
         if session_id not in config.active_sessions:
             return await event.answer("❌ Session expired!", alert=True)
         
-        config.active_sessions[session_id]['step'] = 'pdf_image'
+        config.active_sessions[session_id]['step'] = 'pdf_add_image'
+        config.active_sessions[session_id]['settings']['pdf_add_position'] = 'end'
+        
         await event.edit(
-            "📸 **Remove Pages by Screenshot**\n"
+            "➕ **Add Page at END**\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
-            "**How it works:**\n"
-            "1. Take screenshot of the page you want to remove\n"
-            "2. Send the image here\n"
-            "3. Bot uses 3 advanced methods to find matches:\n"
-            "   • Perceptual Hash (fast)\n"
-            "   • SSIM (structural similarity)\n"
-            "   • ORB (feature matching)\n\n"
-            "**Tips for best results:**\n"
-            "• Screenshot the FULL page\n"
-            "• Use good quality/resolution\n"
-            "• Avoid cropping or editing\n"
-            "• Works even with slight differences\n\n"
-            "**Similarity Threshold:**\n"
-            "Default: 70% (recommended)\n"
-            "Range: 60-90%\n\n"
-            "📤 **Send screenshot now:**",
+            "📤 **Send your image now:**\n\n"
+            "Page will be added at the end of PDF.",
             buttons=get_skip_keyboard(session_id)
         )
     
+    @bot_client.on(events.CallbackQuery(pattern=r'pdf_add_custom_(.+)'))
+    async def pdf_add_custom_callback(event):
+        session_id = event.data.decode().split('_')[3]
+        if session_id not in config.active_sessions:
+            return await event.answer("❌ Session expired!", alert=True)
+        
+        config.active_sessions[session_id]['step'] = 'pdf_add_position'
+        
+        await event.edit(
+            "📍 **Custom Position**\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "Enter page number where to insert:\n\n"
+            "**Examples:**\n"
+            "• `1` - After first page\n"
+            "• `5` - After fifth page\n"
+            "• `10` - After tenth page\n\n"
+            "Page will be inserted at this position.",
+            buttons=get_skip_keyboard(session_id)
+        )
+    
+    # 🆕 PDF THUMBNAIL handlers
+    @bot_client.on(events.CallbackQuery(pattern=r'set_pdf_thumb_(.+)'))
+    async def set_pdf_thumb_callback(event):
+        session_id = event.data.decode().split('_')[3]
+        if session_id not in config.active_sessions:
+            return await event.answer("❌ Session expired!", alert=True)
+        
+        await event.edit(
+            "🖼️ **PDF Thumbnail Control**\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "🎨 Control PDF thumbnail visibility!\n\n"
+            "**Options:**\n"
+            "📌 Keep - Use original thumbnail\n"
+            "🗑️ Remove - Delete thumbnail completely\n"
+            "🖼️ Custom - Add your own thumbnail",
+            buttons=get_pdf_thumbnail_options_keyboard(session_id)
+        )
+    
+    @bot_client.on(events.CallbackQuery(pattern=r'pdf_thumb_keep_(.+)'))
+    async def pdf_thumb_keep_callback(event):
+        session_id = event.data.decode().split('_')[3]
+        if session_id not in config.active_sessions:
+            return await event.answer("❌ Session expired!", alert=True)
+        
+        config.active_sessions[session_id]['settings']['pdf_thumbnail_action'] = 'keep'
+        await event.answer("📌 Keeping original thumbnail", alert=False)
+        await event.edit(
+            "✅ **Thumbnail: Keep Original**\n\n"
+            "PDF thumbnails will remain unchanged.",
+            buttons=get_settings_keyboard(session_id)
+        )
+    
+    @bot_client.on(events.CallbackQuery(pattern=r'pdf_thumb_remove_(.+)'))
+    async def pdf_thumb_remove_callback(event):
+        session_id = event.data.decode().split('_')[3]
+        if session_id not in config.active_sessions:
+            return await event.answer("❌ Session expired!", alert=True)
+        
+        config.active_sessions[session_id]['settings']['pdf_thumbnail_action'] = 'remove'
+        await event.answer("🗑️ Will remove thumbnails", alert=False)
+        await event.edit(
+            "✅ **Thumbnail: Remove**\n\n"
+            "📄 All PDF thumbnails will be removed.\n"
+            "📱 PDFs will appear with generic icon.",
+            buttons=get_settings_keyboard(session_id)
+        )
+    
+    @bot_client.on(events.CallbackQuery(pattern=r'pdf_thumb_custom_(.+)'))
+    async def pdf_thumb_custom_callback(event):
+        session_id = event.data.decode().split('_')[3]
+        if session_id not in config.active_sessions:
+            return await event.answer("❌ Session expired!", alert=True)
+        
+        config.active_sessions[session_id]['step'] = 'pdf_custom_thumbnail'
+        
+        await event.edit(
+            "🖼️ **Custom PDF Thumbnail**\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "📤 **Send your thumbnail image:**\n\n"
+            "**Recommended:**\n"
+            "• 320x320 pixels or larger\n"
+            "• JPG/PNG format\n"
+            "• Represents your PDF content\n\n"
+            "This thumbnail will appear for all PDFs.",
+            buttons=get_skip_keyboard(session_id)
+        )
+    
+    # Video thumbnail handlers (existing)
     @bot_client.on(events.CallbackQuery(pattern=r'set_thumb_(.+)'))
     async def set_thumb_callback(event):
         session_id = event.data.decode().split('_')[2]
@@ -295,7 +352,7 @@ def register_handlers(user_client, bot_client):
             return await event.answer("❌ Session expired!", alert=True)
         
         await event.edit(
-            "🖼️ **Thumbnail Options**\n"
+            "🎬 **Video Thumbnail Options**\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
             "Choose thumbnail method for videos:",
             buttons=get_thumbnail_options_keyboard(session_id)
@@ -325,8 +382,7 @@ def register_handlers(user_client, bot_client):
         config.active_sessions[session_id]['settings']['thumbnail_skip'] = 1
         await event.answer("⚡ Generating from 1 second", alert=False)
         await event.edit(
-            "✅ **Thumbnail: Generate (1s)**\n\n"
-            "Will extract frame from 1 second of video.",
+            "✅ **Thumbnail: Generate (1s)**",
             buttons=get_settings_keyboard(session_id)
         )
     
@@ -340,39 +396,23 @@ def register_handlers(user_client, bot_client):
         config.active_sessions[session_id]['settings']['thumbnail_skip'] = 10
         await event.answer("🎯 Smart thumbnail enabled", alert=False)
         await event.edit(
-            "✅ **Thumbnail: Smart (skip 10s)**\n\n"
-            "Will find best representative frame after skipping first 10 seconds.\n\n"
-            "⚠️ Requires FFmpeg installed!",
+            "✅ **Thumbnail: Smart (skip 10s)**",
             buttons=get_settings_keyboard(session_id)
         )
     
+    # Control handlers (skip, confirm, etc.) - Keep existing...
     @bot_client.on(events.CallbackQuery(pattern=r'skip_(.+)'))
     async def skip_callback(event):
         session_id = event.data.decode().split('_')[1]
         if session_id not in config.active_sessions:
             return await event.answer("❌ Session expired!", alert=True)
         
-        step = config.active_sessions[session_id]['step']
-        
-        # Skip current step
-        if step == 'fname_find':
-            config.active_sessions[session_id]['step'] = 'settings'
-        elif step == 'cap_find':
-            config.active_sessions[session_id]['step'] = 'settings'
-        elif step == 'extra_cap':
-            config.active_sessions[session_id]['step'] = 'settings'
-        elif step == 'pdf_pages':
-            config.active_sessions[session_id]['step'] = 'settings'
-        elif step == 'pdf_keywords':
-            config.active_sessions[session_id]['step'] = 'settings'
-        elif step == 'pdf_image':
-            config.active_sessions[session_id]['step'] = 'settings'
-        
+        config.active_sessions[session_id]['step'] = 'settings'
         await event.answer("⏭️ Skipped!", alert=False)
         await event.edit(
-            f"✅ **Settings Menu**\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"Configure your transfer:",
+            "✅ **Settings Menu**\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "Configure your transfer:",
             buttons=get_settings_keyboard(session_id)
         )
     
@@ -400,9 +440,7 @@ def register_handlers(user_client, bot_client):
             return await event.answer("❌ Session expired!", alert=True)
         
         await event.edit(
-            "✅ **Settings Menu**\n"
-            "━━━━━━━━━━━━━━━━━━━━\n\n"
-            "Configure your transfer:",
+            "✅ **Settings Menu**",
             buttons=get_settings_keyboard(session_id)
         )
     
@@ -415,9 +453,7 @@ def register_handlers(user_client, bot_client):
         config.active_sessions[session_id]['settings'] = {}
         await event.answer("🗑️ All settings cleared!", alert=True)
         await event.edit(
-            "✅ **Settings Cleared**\n"
-            "━━━━━━━━━━━━━━━━━━━━\n\n"
-            "Configure your transfer:",
+            "✅ **Settings Cleared**",
             buttons=get_settings_keyboard(session_id)
         )
     
@@ -432,12 +468,7 @@ def register_handlers(user_client, bot_client):
             "📍 **Send Message Range**\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
             "Send two Telegram message links:\n"
-            "`https://t.me/c/xxx/10 - https://t.me/c/xxx/20`\n\n"
-            "**Format:**\n"
-            "• Links separated by '-'\n"
-            "• Must be from source channel\n"
-            "• Range: Start to End\n\n"
-            "💡 Open source channel, copy message links"
+            "`https://t.me/c/xxx/10 - https://t.me/c/xxx/20`"
         )
     
     @bot_client.on(events.CallbackQuery(pattern=r'cancel_(.+)'))
@@ -455,10 +486,15 @@ def register_handlers(user_client, bot_client):
             config.current_task.cancel()
         await event.answer("🛑 Stopping transfer...", alert=True)
     
+    # Continue with message_handler in next part...
+    config.logger.info("✅ All handlers registered with NEW PDF features!")
+    # ... continued from Part 2
+    
     @bot_client.on(events.NewMessage())
     async def message_handler(event):
+        """Handle text messages and images for PDF customization"""
         
-        # Find active session for this chat
+        # Find active session
         session_id = None
         for sid, data in config.active_sessions.items():
             if data['chat_id'] == event.chat_id:
@@ -471,14 +507,13 @@ def register_handlers(user_client, bot_client):
         session = config.active_sessions[session_id]
         step = session.get('step')
         
-        # Handle different steps
+        # Existing handlers (fname, cap, etc.)
         if step == 'fname_find':
             session['settings']['find_name'] = event.text
             session['step'] = 'fname_replace'
             await event.respond(
                 "✅ **Find text saved!**\n\n"
-                "Now enter text to **REPLACE** with:\n"
-                "(Send text or use Skip button)",
+                "Now enter text to **REPLACE** with:",
                 buttons=get_skip_keyboard(session_id)
             )
         
@@ -497,8 +532,7 @@ def register_handlers(user_client, bot_client):
             session['step'] = 'cap_replace'
             await event.respond(
                 "✅ **Find text saved!**\n\n"
-                "Now enter text to **REPLACE** with:\n"
-                "(Send text or use Skip button)",
+                "Now enter text to **REPLACE** with:",
                 buttons=get_skip_keyboard(session_id)
             )
         
@@ -506,9 +540,7 @@ def register_handlers(user_client, bot_client):
             session['settings']['replace_cap'] = event.text
             session['step'] = 'settings'
             await event.respond(
-                "✅ **Caption modification set!**\n\n"
-                f"Find: `{session['settings']['find_cap']}`\n"
-                f"Replace: `{event.text}`",
+                "✅ **Caption modification set!**",
                 buttons=get_settings_keyboard(session_id)
             )
         
@@ -516,11 +548,11 @@ def register_handlers(user_client, bot_client):
             session['settings']['extra_cap'] = event.text
             session['step'] = 'settings'
             await event.respond(
-                "✅ **Extra caption set!**\n\n"
-                f"Caption: `{event.text[:100]}...`",
+                "✅ **Extra caption set!**",
                 buttons=get_settings_keyboard(session_id)
             )
         
+        # Existing PDF remove handlers
         elif step == 'pdf_pages':
             from pdf_handler import parse_page_range
             pages = parse_page_range(event.text)
@@ -530,64 +562,12 @@ def register_handlers(user_client, bot_client):
                 session['settings']['pdf_pages_list'] = pages
                 session['step'] = 'settings'
                 await event.respond(
-                    "✅ **PDF pages set for removal!**\n\n"
-                    f"Pages to remove: `{sorted(pages)}`\n"
-                    f"Total pages: `{len(pages)}`",
+                    f"✅ **PDF pages set:** `{sorted(pages)}`",
                     buttons=get_settings_keyboard(session_id)
                 )
             else:
                 await event.respond(
-                    "❌ **Invalid format!**\n\n"
-                    "Use: `1,3,5` or `1-5` or `1,3-5,8`",
-                    buttons=get_skip_keyboard(session_id)
-                )
-        
-        elif step == 'pdf_image' and event.photo:
-            # User sent screenshot for PDF page matching
-            import tempfile
-            from pdf_handler import find_matching_pages_by_image
-            
-            try:
-                # Download uploaded image
-                temp_dir = tempfile.gettempdir()
-                image_path = await bot_client.download_media(
-                    event.message, 
-                    file=os.path.join(temp_dir, f"ref_image_{session_id}.jpg")
-                )
-                
-                config.logger.info(f"📥 Screenshot downloaded: {image_path}")
-                
-                # Set default threshold (70% = good balance)
-                threshold = 0.7  # Can be adjusted: 0.6 (loose) to 0.9 (strict)
-                
-                session['settings']['pdf_reference_image'] = image_path
-                session['settings']['pdf_image_threshold'] = threshold
-                session['step'] = 'settings'
-                
-                await event.respond(
-                    "✅ **Screenshot Saved!**\n"
-                    "━━━━━━━━━━━━━━━━━━━━\n\n"
-                    "📸 Image will be analyzed using:\n"
-                    "   1️⃣ Perceptual Hash\n"
-                    "   2️⃣ SSIM (Structural Similarity)\n"
-                    "   3️⃣ ORB Feature Matching\n\n"
-                    f"🎯 Similarity Threshold: **{int(threshold*100)}%**\n"
-                    "   (70% = recommended, detects similar pages)\n\n"
-                    "💡 All matching pages will be removed during transfer.\n\n"
-                    "⚙️ Advanced matching ensures high accuracy!",
-                    buttons=get_settings_keyboard(session_id)
-                )
-            
-            except Exception as img_err:
-                config.logger.error(f"❌ Image processing error: {img_err}")
-                await event.respond(
-                    f"❌ **Image Error**\n\n"
-                    f"Could not process screenshot.\n\n"
-                    f"**Troubleshooting:**\n"
-                    f"• Send as photo (not document)\n"
-                    f"• Use JPG/PNG format\n"
-                    f"• Ensure good quality\n\n"
-                    f"Error: `{str(img_err)[:100]}`",
+                    "❌ **Invalid format!**",
                     buttons=get_skip_keyboard(session_id)
                 )
         
@@ -598,19 +578,131 @@ def register_handlers(user_client, bot_client):
                 session['settings']['pdf_keywords'] = keywords
                 session['step'] = 'settings'
                 await event.respond(
-                    "✅ **PDF keywords set!**\n\n"
-                    f"Will remove pages containing:\n"
-                    f"`{', '.join(keywords)}`\n\n"
-                    f"Keywords: `{len(keywords)}`",
+                    f"✅ **Keywords set:** `{', '.join(keywords)}`",
                     buttons=get_settings_keyboard(session_id)
                 )
             else:
                 await event.respond(
-                    "❌ **No keywords provided!**\n\n"
-                    "Enter keywords separated by commas.",
+                    "❌ **No keywords!**",
                     buttons=get_skip_keyboard(session_id)
                 )
         
+        elif step == 'pdf_image' and event.photo:
+            import tempfile
+            
+            try:
+                temp_dir = tempfile.gettempdir()
+                image_path = await bot_client.download_media(
+                    event.message, 
+                    file=os.path.join(temp_dir, f"ref_image_{session_id}.jpg")
+                )
+                
+                threshold = 0.7
+                session['settings']['pdf_reference_image'] = image_path
+                session['settings']['pdf_image_threshold'] = threshold
+                session['step'] = 'settings'
+                
+                await event.respond(
+                    "✅ **Screenshot Saved!**\n"
+                    "Will remove matching pages.",
+                    buttons=get_settings_keyboard(session_id)
+                )
+            
+            except Exception as e:
+                await event.respond(
+                    f"❌ **Image Error:** `{str(e)[:100]}`",
+                    buttons=get_skip_keyboard(session_id)
+                )
+        
+        # 🆕 NEW: PDF Add Page handlers
+        elif step == 'pdf_add_position':
+            try:
+                position = int(event.text.strip())
+                if position < 1:
+                    raise ValueError("Position must be >= 1")
+                
+                session['settings']['pdf_add_position'] = position
+                session['step'] = 'pdf_add_image'
+                
+                await event.respond(
+                    f"✅ **Position set:** Page {position}\n\n"
+                    f"📤 **Now send your image:**",
+                    buttons=get_skip_keyboard(session_id)
+                )
+            
+            except Exception as e:
+                await event.respond(
+                    "❌ **Invalid position!**\n\n"
+                    "Enter a number (e.g., 1, 5, 10):",
+                    buttons=get_skip_keyboard(session_id)
+                )
+        
+        elif step == 'pdf_add_image' and event.photo:
+            import tempfile
+            
+            try:
+                temp_dir = tempfile.gettempdir()
+                image_path = await bot_client.download_media(
+                    event.message, 
+                    file=os.path.join(temp_dir, f"add_page_{session_id}.jpg")
+                )
+                
+                position = session['settings'].get('pdf_add_position', 'end')
+                session['settings']['pdf_add_image'] = image_path
+                session['step'] = 'settings'
+                
+                await event.respond(
+                    "✅ **Image Saved!**\n"
+                    "━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"📄 Will add as page at: **{position}**\n"
+                    f"🎨 Image will be converted to PDF page\n"
+                    f"📐 Auto-fitted to page size\n\n"
+                    f"✅ Ready for transfer!",
+                    buttons=get_settings_keyboard(session_id)
+                )
+            
+            except Exception as e:
+                config.logger.error(f"❌ Add page error: {e}")
+                await event.respond(
+                    f"❌ **Image Error:** `{str(e)[:100]}`\n\n"
+                    "Please send image as photo (not document).",
+                    buttons=get_skip_keyboard(session_id)
+                )
+        
+        # 🆕 NEW: PDF Custom Thumbnail handler
+        elif step == 'pdf_custom_thumbnail' and event.photo:
+            import tempfile
+            
+            try:
+                temp_dir = tempfile.gettempdir()
+                thumb_path = await bot_client.download_media(
+                    event.message, 
+                    file=os.path.join(temp_dir, f"pdf_thumb_{session_id}.jpg")
+                )
+                
+                session['settings']['pdf_thumbnail_action'] = 'custom'
+                session['settings']['pdf_custom_thumbnail'] = thumb_path
+                session['step'] = 'settings'
+                
+                await event.respond(
+                    "✅ **Custom Thumbnail Saved!**\n"
+                    "━━━━━━━━━━━━━━━━━━━━\n\n"
+                    "🖼️ This thumbnail will be applied to all PDFs\n"
+                    "📱 Will appear in Telegram file preview\n"
+                    "🎨 Represents your brand/content\n\n"
+                    "✅ Ready for transfer!",
+                    buttons=get_settings_keyboard(session_id)
+                )
+            
+            except Exception as e:
+                config.logger.error(f"❌ Thumbnail error: {e}")
+                await event.respond(
+                    f"❌ **Thumbnail Error:** `{str(e)[:100]}`\n\n"
+                    "Send image as photo (JPG/PNG recommended).",
+                    buttons=get_skip_keyboard(session_id)
+                )
+        
+        # Message range handler
         elif step == 'range' and "t.me" in event.text:
             try:
                 links = event.text.strip().split("-")
@@ -634,35 +726,32 @@ def register_handlers(user_client, bot_client):
                 )
             except Exception as e: 
                 await event.respond(
-                    f"❌ **Invalid Range Format**\n\n"
-                    f"Error: `{str(e)}`\n\n"
-                    f"Expected format:\n"
-                    f"`https://t.me/c/xxx/10 - https://t.me/c/xxx/20`"
+                    f"❌ **Invalid Range:** `{str(e)}`"
                 )
     
     @bot_client.on(events.NewMessage(pattern='/stats'))
     async def stats_handler(event):
         await event.respond(
-            f"📊 **EXTREME MODE Stats**\n"
+            f"📊 **EXTREME MODE v3.0 Stats**\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"⚡ Chunk: **{config.CHUNK_SIZE // (1024*1024)}MB**\n"
             f"💾 Buffer: **{(config.CHUNK_SIZE * config.QUEUE_SIZE) // (1024*1024)}MB**\n"
-            f"📤 Upload: **{config.UPLOAD_PART_SIZE // 1024}MB parts**\n"
-            f"🔄 Retries: **{config.MAX_RETRIES}**\n"
-            f"⏱️ Updates: **Every {config.UPDATE_INTERVAL}s**\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"🚀 Status: **{'Running' if config.is_running else 'Idle'}**\n"
-            f"📊 Sessions: **{len(config.active_sessions)}**"
+            f"📊 Sessions: **{len(config.active_sessions)}**\n\n"
+            f"🆕 **NEW PDF Features:**\n"
+            f"• Add custom pages\n"
+            f"• Control thumbnails"
         )
     
     @bot_client.on(events.NewMessage(pattern='/stop'))
     async def stop_handler(event):
         if not config.is_running:
-            return await event.respond("⚠️ No active transfer to stop!")
+            return await event.respond("⚠️ No active transfer!")
         
         config.is_running = False
         if config.current_task: 
             config.current_task.cancel()
         await event.respond("🛑 **Transfer stopped!**")
     
-    config.logger.info("✅ All handlers registered successfully!")
+    config.logger.info("✅ v3.0 handlers with PDF features registered!")
