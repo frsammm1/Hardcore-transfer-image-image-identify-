@@ -1,1 +1,9 @@
-
+telethon
+aiohttp
+python-dotenv
+cryptg
+PyPDF2
+Pillow
+ffmpeg-python
+imagehash
+pdf2image
