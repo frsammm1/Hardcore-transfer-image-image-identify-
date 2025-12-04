@@ -1,74 +1,167 @@
 import os
 import tempfile
+import numpy as np
 from PyPDF2 import PdfReader, PdfWriter
 from pdf2image import convert_from_path
 from PIL import Image
 import imagehash
+import cv2
+from skimage.metrics import structural_similarity as ssim
 import config
 
-async def compare_image_to_pdf_page(uploaded_image_path, pdf_page_image_path, threshold=10):
+async def compare_image_to_pdf_page_v2(uploaded_image_path, pdf_page_image_path, threshold=0.7):
     """
-    Compare uploaded image with PDF page using perceptual hashing
-    threshold: Maximum hash difference (lower = more strict)
-    Returns: True if images are similar
+    IMPROVED: Multi-method image comparison
+    Methods: 
+    1. Perceptual Hash (fast but strict)
+    2. SSIM - Structural Similarity (best for screenshots) 
+    3. ORB Feature Matching (rotation/scale resistant)
+    
+    threshold: 0.0-1.0 where 1.0 = identical (SSIM/Feature method)
+    Returns: (is_match, similarity_score, method_used)
     """
     try:
-        # Calculate perceptual hashes
-        uploaded_hash = imagehash.average_hash(Image.open(uploaded_image_path))
-        pdf_page_hash = imagehash.average_hash(Image.open(pdf_page_image_path))
+        # Load images
+        uploaded_img = Image.open(uploaded_image_path).convert('RGB')
+        pdf_page_img = Image.open(pdf_page_image_path).convert('RGB')
         
-        # Calculate difference (0 = identical, 64 = completely different)
-        difference = uploaded_hash - pdf_page_hash
+        # METHOD 1: Enhanced Perceptual Hash
+        try:
+            uploaded_hash = imagehash.phash(uploaded_img, hash_size=16)  # Larger hash
+            pdf_hash = imagehash.phash(pdf_page_img, hash_size=16)
+            hash_diff = uploaded_hash - pdf_hash
+            hash_similarity = 1.0 - (hash_diff / 256.0)  # Normalize to 0-1
+            
+            if hash_similarity >= threshold:
+                config.logger.info(f"✅ PHash Match: {hash_similarity:.3f}")
+                return True, hash_similarity, "phash"
+        except Exception as e:
+            config.logger.warning(f"⚠️ PHash failed: {e}")
         
-        config.logger.info(f"🔍 Image similarity: {difference} (threshold: {threshold})")
+        # METHOD 2: SSIM (Best for screenshots)
+        try:
+            # Resize to same dimensions
+            target_size = (800, 600)
+            img1_resized = np.array(uploaded_img.resize(target_size))
+            img2_resized = np.array(pdf_page_img.resize(target_size))
+            
+            # Convert to grayscale
+            img1_gray = cv2.cvtColor(img1_resized, cv2.COLOR_RGB2GRAY)
+            img2_gray = cv2.cvtColor(img2_resized, cv2.COLOR_RGB2GRAY)
+            
+            # Calculate SSIM
+            ssim_score, _ = ssim(img1_gray, img2_gray, full=True)
+            
+            config.logger.info(f"🔍 SSIM Score: {ssim_score:.3f} (threshold: {threshold})")
+            
+            if ssim_score >= threshold:
+                config.logger.info(f"✅ SSIM Match: {ssim_score:.3f}")
+                return True, ssim_score, "ssim"
+        except Exception as e:
+            config.logger.warning(f"⚠️ SSIM failed: {e}")
         
-        return difference <= threshold
+        # METHOD 3: ORB Feature Matching (fallback)
+        try:
+            # Convert to OpenCV format
+            img1_cv = cv2.cvtColor(np.array(uploaded_img), cv2.COLOR_RGB2BGR)
+            img2_cv = cv2.cvtColor(np.array(pdf_page_img), cv2.COLOR_RGB2BGR)
+            
+            # Resize for consistency
+            img1_cv = cv2.resize(img1_cv, (800, 600))
+            img2_cv = cv2.resize(img2_cv, (800, 600))
+            
+            # ORB detector
+            orb = cv2.ORB_create(nfeatures=500)
+            kp1, des1 = orb.detectAndCompute(img1_cv, None)
+            kp2, des2 = orb.detectAndCompute(img2_cv, None)
+            
+            if des1 is not None and des2 is not None:
+                # BFMatcher
+                bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+                matches = bf.match(des1, des2)
+                
+                # Calculate match ratio
+                match_ratio = len(matches) / max(len(kp1), len(kp2))
+                
+                config.logger.info(f"🎯 ORB Matches: {len(matches)}/{max(len(kp1), len(kp2))} = {match_ratio:.3f}")
+                
+                # Lower threshold for ORB (0.3 is good)
+                orb_threshold = threshold * 0.5  
+                if match_ratio >= orb_threshold:
+                    config.logger.info(f"✅ ORB Match: {match_ratio:.3f}")
+                    return True, match_ratio, "orb"
+        except Exception as e:
+            config.logger.warning(f"⚠️ ORB failed: {e}")
+        
+        # No match found
+        config.logger.info(f"❌ No match found with any method")
+        return False, 0.0, "none"
         
     except Exception as e:
         config.logger.error(f"❌ Image comparison error: {e}")
-        return False
+        return False, 0.0, "error"
 
-async def find_matching_pages_by_image(pdf_path, reference_image_path, threshold=10):
+async def find_matching_pages_by_image(pdf_path, reference_image_path, threshold=0.7):
     """
-    Find all PDF pages that match the reference image
-    reference_image_path: Path to uploaded screenshot
-    threshold: Similarity threshold (0-64, lower = stricter)
+    Find all PDF pages matching reference image
+    threshold: 0.7 = 70% similarity (adjustable: 0.6-0.9)
     Returns: List of matching page numbers (1-indexed)
     """
     try:
-        config.logger.info(f"🔍 Searching for matching pages in PDF...")
-        config.logger.info(f"📸 Reference image: {reference_image_path}")
+        config.logger.info(f"🔍 Starting image-based page search...")
+        config.logger.info(f"📸 Reference: {reference_image_path}")
+        config.logger.info(f"🎯 Threshold: {threshold} (70% = good match)")
         
-        # Convert PDF pages to images
+        # Convert PDF to images with higher DPI for better matching
         temp_dir = tempfile.gettempdir()
-        pdf_images = convert_from_path(pdf_path, dpi=150, output_folder=temp_dir)
+        config.logger.info(f"📄 Converting PDF to images (this may take time)...")
+        
+        pdf_images = convert_from_path(
+            pdf_path, 
+            dpi=150,  # Good balance of quality/speed
+            output_folder=temp_dir,
+            fmt='jpeg'
+        )
+        
+        config.logger.info(f"✅ Converted {len(pdf_images)} pages to images")
         
         matching_pages = []
+        best_matches = []  # Store all matches with scores
         
         for page_num, pdf_page_image in enumerate(pdf_images, start=1):
             # Save PDF page as temp image
-            temp_page_path = os.path.join(temp_dir, f"pdf_page_{page_num}.png")
-            pdf_page_image.save(temp_page_path, 'PNG')
+            temp_page_path = os.path.join(temp_dir, f"pdf_page_{page_num}.jpg")
+            pdf_page_image.save(temp_page_path, 'JPEG', quality=95)
             
-            # Compare with reference image
-            is_match = await compare_image_to_pdf_page(
-                reference_image_path, 
-                temp_page_path, 
+            # Compare with reference
+            is_match, score, method = await compare_image_to_pdf_page_v2(
+                reference_image_path,
+                temp_page_path,
                 threshold
             )
             
             if is_match:
                 matching_pages.append(page_num)
-                config.logger.info(f"✅ Match found on page {page_num}")
+                best_matches.append((page_num, score, method))
+                config.logger.info(f"✅ MATCH on page {page_num} (score: {score:.3f}, method: {method})")
+            else:
+                config.logger.debug(f"⏭️ Page {page_num}: No match (score: {score:.3f})")
             
-            # Cleanup temp page image
+            # Cleanup temp page
             if os.path.exists(temp_page_path):
                 os.remove(temp_page_path)
         
+        # Summary
         if matching_pages:
-            config.logger.info(f"🎯 Total matches found: {len(matching_pages)} pages")
+            config.logger.info(f"🎯 FOUND {len(matching_pages)} matching page(s): {matching_pages}")
+            for page, score, method in best_matches:
+                config.logger.info(f"  📄 Page {page}: {score:.1%} similarity ({method})")
         else:
-            config.logger.info(f"⚠️ No matching pages found")
+            config.logger.warning(f"⚠️ No matching pages found!")
+            config.logger.warning(f"💡 Try:")
+            config.logger.warning(f"   - Lower threshold (current: {threshold})")
+            config.logger.warning(f"   - Better quality screenshot")
+            config.logger.warning(f"   - Screenshot full page without cropping")
         
         return matching_pages
         
@@ -80,7 +173,7 @@ async def remove_pdf_pages(input_path, pages_to_remove):
     """
     Remove specific pages from PDF
     pages_to_remove: list of page numbers (1-indexed)
-    Returns: path to modified PDF
+    Returns: (output_path, kept_pages, removed_pages)
     """
     try:
         reader = PdfReader(input_path)
@@ -89,8 +182,12 @@ async def remove_pdf_pages(input_path, pages_to_remove):
         total_pages = len(reader.pages)
         config.logger.info(f"📄 PDF Total Pages: {total_pages}")
         
-        # Convert to 0-indexed
+        # Convert to 0-indexed and validate
         pages_to_skip = set(p - 1 for p in pages_to_remove if 0 < p <= total_pages)
+        
+        if not pages_to_skip:
+            config.logger.warning(f"⚠️ No valid pages to remove!")
+            return None, total_pages, 0
         
         kept_pages = 0
         for page_num in range(total_pages):
@@ -98,15 +195,16 @@ async def remove_pdf_pages(input_path, pages_to_remove):
                 writer.add_page(reader.pages[page_num])
                 kept_pages += 1
         
-        # Create temp file for output
+        # Create output file
         temp_dir = tempfile.gettempdir()
         output_path = os.path.join(temp_dir, f"modified_{os.path.basename(input_path)}")
         
         with open(output_path, 'wb') as output_file:
             writer.write(output_file)
         
-        config.logger.info(f"✅ PDF Modified: {kept_pages}/{total_pages} pages kept")
-        config.logger.info(f"🗑️ Removed pages: {sorted(pages_to_remove)}")
+        config.logger.info(f"✅ PDF Modified Successfully!")
+        config.logger.info(f"   📊 Kept: {kept_pages} pages")
+        config.logger.info(f"   🗑️ Removed: {len(pages_to_skip)} pages {sorted(pages_to_remove)}")
         
         return output_path, kept_pages, len(pages_to_skip)
         
@@ -116,7 +214,7 @@ async def remove_pdf_pages(input_path, pages_to_remove):
 
 async def extract_pdf_text_from_page(input_path, page_number):
     """
-    Extract text from a specific page for smart detection
+    Extract text from specific page
     page_number: 1-indexed
     """
     try:
@@ -134,25 +232,27 @@ async def extract_pdf_text_from_page(input_path, page_number):
 
 async def find_pages_with_keywords(input_path, keywords):
     """
-    Find all pages containing specific keywords
-    keywords: list of strings to search for
+    Find pages containing keywords
+    keywords: list of strings
     Returns: list of page numbers (1-indexed)
     """
     try:
         reader = PdfReader(input_path)
         matching_pages = []
         
+        config.logger.info(f"🔍 Searching for keywords: {keywords}")
+        
         for page_num in range(len(reader.pages)):
             page = reader.pages[page_num]
             text = page.extract_text().lower()
             
-            # Check if any keyword exists in page
             for keyword in keywords:
                 if keyword.lower() in text:
-                    matching_pages.append(page_num + 1)  # 1-indexed
-                    config.logger.info(f"🔍 Found '{keyword}' on page {page_num + 1}")
+                    matching_pages.append(page_num + 1)
+                    config.logger.info(f"✅ Found '{keyword}' on page {page_num + 1}")
                     break
         
+        config.logger.info(f"🎯 Total keyword matches: {len(matching_pages)} pages")
         return matching_pages
         
     except Exception as e:
