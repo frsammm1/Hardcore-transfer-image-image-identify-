@@ -10,4 +10,3 @@ pdf2image
 opencv-python
 scikit-image
 numpy
-reportlab
